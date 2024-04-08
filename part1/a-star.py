@@ -9,376 +9,365 @@ a_star_kshitij_abhishek.py
 @github:    https://github.com/KshitijKarnawat/a-star-path-planner
 """
 
-import os
-import argparse
 import numpy as np
-import cv2 as cv
 import matplotlib.pyplot as plt
-import csv
+import cv2
 import time
+import math
+import csv
+import os
 
+class Node:
+    """Class to represent a node in the search tree
 
-class NewNode:
-    """Class to represent a node in the graph
+    Args:
+        pose (tuple): x, y, theta of the node
+        parent (Node): parent node
+        cost_to_come (float): cost to come to the node
+        total_cost (float): total cost of the node
+        left_wheel (float): left wheel speed
+        right_wheel (float): right wheel speed
+        path (list): path taken by the robot to reach the node
     """
-    def __init__(self, pose, parent, cost_to_go, cost_to_come, left_wheel_rpm, right_wheel_rpm, path):
-        """Initializes the node with its coordinates, parent and cost
-
-        Args:
-            coord (tuple): Coordinates of the node along with the angle
-            parent (NewNode): Parent node of the current node
-            cost_to_go (float): Cost to reach the current node
-            cost_to_come (float): A-Star Hueristic for the current node (Eucledian Distance)
-        """
+    def __init__(self, pose, parent, cost_to_come, total_cost, left_wheel, right_wheel, path):
         self.pose = pose
         self.parent = parent
-        self.cost_to_go = cost_to_go
         self.cost_to_come = cost_to_come
-        self.total_cost = cost_to_come + cost_to_go
-        self.left_wheel_rpm = left_wheel_rpm
-        self.right_wheel_rpm = right_wheel_rpm
+        self.total_cost = total_cost
+        self.left_wheel = left_wheel
+        self.right_wheel = right_wheel
         self.path = path
 
-def in_obstacles(pose, clearance):
-    """Checks if the given coordinates are in obstacles
+def calc_euclidean_dist(start, goal):
+    """Calculate euclidean distance between two points
 
     Args:
-        coord (tuple): Coordinates to check
+        start (tuple): Start point (x, y)
+        goal (tuple): Goal point (x, y)
 
     Returns:
-        bool: True if the coordinates are in obstacles, False otherwise
-    """
-    # Set Max and Min values for x and y
-    x_max, y_max = 600, 200
-    x_min, y_min = 0, 0
-
-    x, y, heading = pose
-
-    bloat = clearance
-
-    if (x < x_min + bloat) or (x > x_max - bloat) or (y < y_min + bloat) or (y > y_max - bloat):
-        # print("Out of bounds")
-        return True
-
-    # Rectangle 1
-    elif (x >= 150 - bloat and x <= 175 + bloat) and (y >= 100 - bloat and y <= 200):
-        # print("In Obstacle 1")
-        return True
-
-    # Rectangle 2
-    elif (x >= 250 - bloat and x <= 275 + bloat) and (y >= 0 and y <= 100 + bloat):
-        # print("In Obstacle 2")
-        return True
-
-    # Circle
-    elif (x - 420) ** 2 + (y - 120) ** 2 <= (60 + bloat) ** 2:
-        # print("In Obstacle 3")
-        return True    
-
-    return False
-
-def near_goal(start, goal, threshold):
-    """Checks if the start node is near the goal node
-
-    Args:
-        start (tuple): Start coordinates
-        goal (tuple): Goal coordinates
-        threshold (int): Threshold distance
-
-    Returns:
-        bool: True if the start node is near the goal node, False otherwise
-    """
-    return calc_euclidian_distance(start, goal) <= threshold
-
-def calc_euclidian_distance(start, goal):
-    """Calculates the euclidian distance between two points
-
-    Args:
-        start (tuple): Start coordinates
-        goal (tuple): Goal coordinates
-
-    Returns:
-        float: Euclidian distance between the two points
+        float: Euclidean distance between start and goal
     """
     return np.sqrt((start[0] - goal[0]) ** 2 + (start[1] - goal[1]) ** 2)
 
-def get_child_nodes(node, goal_pose, clearance, w1, w2):
-    """Generates all possible child nodes for the given node
+def in_obstacle(pose, clearence):
+    """Check if the robot is in the obstacle space
 
     Args:
-        node (NewNode): Node to generate child nodes from
-        goal_coord (tuple): Coordinates of the goal node
+        pose (tuple): Pose of the robot (x, y, theta)
+        clearence (int): Clearence of the robot
 
     Returns:
-        list: List of child nodes and their costs
+        bool: True if robot is in obstacle space, False otherwise
     """
 
-    # child nodes list
-    child_nodes = []
-    actions = [[0, w1], [w1, 0], [w1, w1], [0, w2], [w2, 0], [w2, w2],
-               [w1, w2], [w2, w1]]
+    xMax, yMax = [600 + 1, 200 + 1]
+    yMin, yMin = [0, 0]
+    x, y, th = pose
+    
+    # walls
+    if x <= clearence or x >= xMax-clearence or y <= clearence or y >= yMax- clearence:
+        return False
+    
+    # left rectangle
+    elif x>= 150-clearence and x<= 175+clearence and y >=100-clearence and y <= yMax-clearence:
+        return False
+    
+    # right rectangle
+    elif x >= 250-clearence and x<= 275+clearence and y >=yMin+clearence  and y <= 100+clearence:
+        return False
+    
+    # circle
+    elif (x-420)**2 + (y-120)**2 <=(60+clearence)**2:
+        return False
+    
+    else:
+        return True
+    
+def get_child(node, goal_pose, clearence, w1, w2):
+    """Get child nodes for the current node
 
-    # Create all possible child nodes
-    for action in actions:
-        left_wheel_rpm, right_wheel_rpm = action
-        left_wheel_rpm = left_wheel_rpm * (np.pi / 30)
-        right_wheel_rpm = right_wheel_rpm * (np.pi / 30)
+    Args:
+        node (Node): Current node
+        goal_pose (tuple): Goal pose (x, y, theta)
+        clearence (int): Clearence of the robot
+        w1 (int): Left wheel speed
+        w2 (int): Right wheel speed
+
+    Returns:
+        list: List of child nodes
+    """
+
+    child_list = []
+    actionSet = [[0,w1], [w1,0], [w1,w1], [0,w2],
+                 [w2,0], [w2,w2], [w1,w2], [w2,w1]]
+    
+    
+    for action in actionSet:
+        left_wheel,right_wheel = action 
+        left_wheel= left_wheel*(math.pi/30)
+        right_wheel= right_wheel*(math.pi/30)
         child_path = []
-        
-        # Constants defined for the robot
+
+        # Robot parameters
         t = 0
-        r = 3.3     # radius of the wheel
+        r = 3.3     # radius of wheel
         L = 16      # distance between wheels
         dt = 0.1
-        
-        valid = False
-        x, y, theta = node.pose
-        theta_rad = np.deg2rad(theta)
-        action_cost = 0
-        Xn = x
-        Yn = y
+        valid = True
 
-        while t < 1:
+        xi, yi, thi = node.pose
+        Thetan = np.deg2rad(thi)
+        actionCost = 0
+        Xn=xi
+        Yn=yi
+
+        while t<1:
             t = t + dt
-            theta_rad += (r / L) * (right_wheel_rpm - left_wheel_rpm) * dt
-            Xs, Ys = Xn, Yn
-            # Differential Drive Constraints
-            Xn = Xs + 0.5 * r * (left_wheel_rpm + right_wheel_rpm) * np.cos(theta_rad) * dt
-            Yn = Ys + 0.5 * r * (left_wheel_rpm + right_wheel_rpm) * np.sin(theta_rad) * dt
+            Xs,Ys = Xn,Yn
+            Thetan += (r / L) * (right_wheel - left_wheel) * dt
+            Xn = Xs + 0.5* r * (left_wheel + right_wheel) * math.cos(Thetan) * dt
+            Yn =  Ys + 0.5 * r * (left_wheel + right_wheel) * math.sin(Thetan) * dt
             child_path.append([[Xs, Xn], [Ys, Yn]])
-            if not in_obstacles((Xn, Yn, theta_rad), clearance):
-                valid = True
+
+            if not in_obstacle((Xn, Yn, Thetan), clearence):
+                valid = False
                 break
-        
+
         if valid:
-            theta = np.rad2deg(theta_rad)
-            action_cost = calc_euclidian_distance((Xn, Yn), (Xs, Ys))
-            cost_to_go = calc_euclidian_distance((Xn, Yn), goal_pose)
+            Thetan = np.rad2deg(Thetan)
+            actionCost = calc_euclidean_dist((Xs, Ys), (Xn, Yn))
+            cgoal = np.linalg.norm(np.asarray((Xn, Yn)) - np.asarray((goal_pose[0], goal_pose[1])))
+            child = Node((int(round(Xn, 0)), int(round(Yn, 0)), Thetan), 
+                        node, 
+                        node.cost_to_come + actionCost,
+                        node.cost_to_come + actionCost + cgoal, 
+                        left_wheel, 
+                        right_wheel, 
+                        child_path
+                        )
             
-            child_node = NewNode((int(round(Xn, 0)), int(round(Yn, 0)), theta),
-                                  node,
-                                  cost_to_go,
-                                  node.cost_to_come + action_cost, 
-                                  left_wheel_rpm, 
-                                  right_wheel_rpm, 
-                                  child_path
-                                  )
-            
-            child_nodes.append((child_node, action_cost))
+            child_list.append((actionCost, cgoal, child))
 
-    return child_nodes
+    return child_list
 
-def astar(start_pose, goal_pose, clearance, threshold, w1, w2):
-    """Finds the shortest path from start to goal using Dijkstra's algorithm
+def backtrack(current):
+    path = []
+    speeds= []
+    trajectory = []
+    parent = current
+    while parent != None:
+        path.append(parent.pose)
+        speeds.append((parent.left_wheel,parent.right_wheel))
+        trajectory.append(parent)
+        parent = parent.parent
+    return path, speeds, trajectory
+
+def astar(start, goal, clearence , w1, w2, threshold):
+    """Implement A* algorithm to find the path from start to goal
 
     Args:
-        start (tuple): Start coordinates
-        goal (tuple): Goal coordinates
+        start (Node): Start node
+        goal (Node): Goal node
+        clearence (int): Clearence of the robot
+        w1 (int): Speed of wheel for action
+        w2 (int): Speed of wheel for action
+        threshold (int): Threshold to reach goal
 
     Returns:
-        list: A list of explored nodes
-        list: A list of coordinates representing the shortest path
+        list: list of nodes in the path
+        list: list of speeds of left and right wheels
+        list: list of nodes in the trajectory
+        list: list of explored nodes
     """
-    # Initialize open and closed lists
+
     open_list = []
     open_list_info = {}
     closed_list = []
     closed_list_info = {}
-    path = []
     explored_nodes = []
 
-    # Create start node and add it to open list
-    start_node = NewNode(start_pose, 
-                         None, 
-                         calc_euclidian_distance(start_pose, goal_pose), 
-                         0,
-                         0, 
-                         0, 
-                         []
-                         )
+    initial_node = Node(start, 
+                        None, 
+                        0, 
+                        calc_euclidean_dist(start, goal), 
+                        0,
+                        0, 
+                        []
+                        )
     
-    open_list.append((start_node, start_node.total_cost))
-    open_list_info[start_node.pose] = start_node
-    start_time = time.time()
+    open_list.append((initial_node.total_cost, initial_node))
+    open_list_info[initial_node.pose] = initial_node
+
+    start = time.time()
     while open_list:
-        # Get the node with the minimum total cost and add to closed list
-        open_list.sort(key=lambda x: x[1]) # sort open list based on total cost
-        current_node, _ = open_list.pop(0)
-        open_list_info.pop(current_node.pose)
-        closed_list.append(current_node)
-        closed_list_info[current_node.pose] = current_node
+        open_list.sort(key=lambda x: x[0])
+        _, current = open_list.pop(0)
+        open_list_info.pop(current.pose)
+        closed_list.append(current)
+        closed_list_info[current.pose] = current
 
-        # Check if goal reached
-        if near_goal(current_node.pose, goal_pose, threshold):
-            end_time = time.time()
-            print("Time taken by A-Star:", end_time - start_time)
-            path, rpm, trajectory = backtrack_path(current_node)
-            return explored_nodes, path, rpm, trajectory
-
+        if calc_euclidean_dist(current.pose, goal) <= threshold:
+            pathTaken, rpms, trajectory = backtrack(current)
+            end = time.time()
+            print("Path Found")
+            print('Time taken to execute algorithm: ',(end - start)," sec")
+            return (pathTaken,rpms,trajectory, explored_nodes)
+        
         else:
-            children = get_child_nodes(current_node, goal_pose, clearance, w1, w2)
-            for child, child_cost in children:
+            childList = get_child(current, goal, clearence, w1, w2)
+            for actionCost, actionGoal, child in childList:
                 if child.pose in closed_list_info:
                     del child
                     continue
 
                 if child.pose in open_list_info:
-                    if child_cost + current_node.cost_to_come < open_list_info[child.pose].cost_to_come:
-                        open_list_info[child.pose].cost_to_come = child_cost + current_node.cost_to_come
-                        open_list_info[child.pose].total_cost = open_list_info[child.pose].cost_to_come + open_list_info[child.pose].cost_to_go
-                        open_list_info[child.pose].parent = current_node
+                    if open_list_info[child.pose].cost_to_come > current.cost_to_come + actionCost:
+                        open_list_info[child.pose].parent = current
+                        open_list_info[child.pose].cost_to_come = current.cost_to_come + actionCost
+                        open_list_info[child.pose].total_cost = open_list_info[child.pose].cost_to_come + actionGoal
+                
                 else:
-                    child.parent = current_node
-                    open_list.append((child, child.total_cost))
+                    child.parent = current
+                    child.cost_to_come = current.cost_to_come + actionCost
+                    child.total_cost = child.cost_to_come + actionGoal
+                    open_list.append((child.total_cost, child))
                     open_list_info[child.pose] = child
-
                     explored_nodes.append(child)
 
-    end_time = time.time()
-    print("Time taken by A-Star:", end_time - start_time)
-    return explored_nodes, None, None, None
+    end = time.time()
+    print("Time taken to execute algorithm: ",(end - start)," sec")
+    return None, None, None, None
 
-# Reused from Previous Assignment
-def backtrack_path(goal_node):
-    """Backtracking algorithm for Dijkstra's algorithm
-
-    Args:
-        goal_node (NewNode): Goal node
-
-    Returns:
-        list: A list of coordinates representing the shortest path
-    """
-    path = []
-    rpm = []
-    trajectory = []
-    parent = goal_node
-    while parent!= None:
-        path.append((parent.pose[0], parent.pose[1]))
-        rpm.append((parent.left_wheel_rpm, parent.right_wheel_rpm))
-        parent = parent.parent
-    return path[::-1], rpm[::-1], trajectory[::-1]
-
-# Reused from Previous Assignment
-def vizualize(start, goal, path, explored_nodes, rpm, trajectory, animate=False):
-    """Vizualizes the path and explored nodes
+def visualization(explored_nodes, pathTaken, trajectory, start_pose, goal_pose, animate=False):
+    """Visualize the path taken by the robot
 
     Args:
-        game_map (numpy array): A 2D array representing the game map
-        start (tuple): Start coordinates
-        goal (tuple): Goal coordinates
-        path (list): A list of coordinates representing the shortest path
-        explored_nodes (list): A list of explored nodes
+        explored_nodes (List): Explored nodes
+        pathTaken (List): List of nodes in the path
+        trajectory (List): List of nodes in the trajectory
+        start_pose (tuple): Start pose of the robot
+        goal_pose (tuple): Goal pose of the robot
+        animate (bool, optional): Creates a video if True. Defaults to False.
     """
-    count = 0
+
+    counter = 0
     plt.rcParams["figure.figsize"] = [30,20]
     fig, ax = plt.subplots()
     ax.axis('off')
     ax.margins(0)
-    ax.set_xlim(0, 600)
-    ax.set_ylim(0, 200)
+    plt.xlim(0,600)
+    plt.ylim(0,200)
+
     if animate:
-        if not os.path.exists('output'):
-            os.makedirs('output')
-        save = cv.VideoWriter('turtlebot.avi',cv.VideoWriter_fourcc('M','J','P','G'),10,(2160,1440))
+        if not os.path.exists('animate'):
+            os.makedirs('animate')
+        save = cv2.VideoWriter('turtlebot_k.avi', 
+                               cv2.VideoWriter_fourcc(*'mp4v'),
+                               10,
+                               (1280,720)
+                               )
     
-    # Plot start and goal points
-    ax.scatter(start[0], start[1], color='red', s=100, label='Start')
-    ax.scatter(goal[0], goal[1], color='green', s=100, label='Goal')
+    # set goal and start
+    ax.scatter(start_pose[0],start_pose[1],color = "red")
+    ax.scatter(goal_pose[0],goal_pose[1],color = "green")
+    
+    # draw obstacle space
+    xObs, yObs = np.meshgrid(np.arange(0, 600), np.arange(0, 200))
+    rectangle1 = plt.Rectangle((150, 100), 25, 100, fc='black')
+    ax.add_artist(rectangle1)
+    
+    rectangle2 = plt.Rectangle((250, 0), 25, 100, fc='black')
+    ax.add_artist(rectangle2)
+    
+    cc = plt.Circle(( 420 , 120 ), 60, color = "black") 
+    ax.add_artist( cc )
 
-    # Plot obstacles
-    x, y = np.meshgrid(np.arange(0, 600), np.arange(0, 200))
-    rect1 = plt.Rectangle((150, 100), 25, 100, color='black')
-    rect2 = plt.Rectangle((250, 0), 25, 100, color='black')
-    circle = plt.Circle((420, 120), 60, color='black')
-    ax.add_artist(rect1)
-    ax.add_artist(rect2)
-    ax.add_artist(circle)
-
-    # Plot boundaries
-    bound1 = (x<=5)
-    bound2 = (x>=595)
-    bound3 = (y<=5)
-    bound4 = (y>=195)
-    ax.fill(x[bound1], y[bound1], color='black')
-    ax.fill(x[bound2], y[bound2], color='black')
-    ax.fill(x[bound3], y[bound3], color='black')
-    ax.fill(x[bound4], y[bound4], color='black')
+    boundary1 = (xObs<=5) 
+    ax.fill(xObs[boundary1], yObs[boundary1], color='black')
+    boundary2 = (xObs>=595) 
+    ax.fill(xObs[boundary2], yObs[boundary2], color='black')
+    boundary3 = (yObs<=5) 
+    ax.fill(xObs[boundary3], yObs[boundary3], color='black')
+    boundary4 = (yObs>=195) 
+    ax.fill(xObs[boundary4], yObs[boundary4], color='black')
     ax.set_aspect(1)
-
+   
     if animate:
-        plt.savefig('output/output_image_' + str(count) + '.png')
-        count += 1
+        plt.savefig("animate/animateImg"+str(counter)+".png")
+        counter += 1
 
     start_time = time.time()
-
-    # Plot explored nodes
-    for node in explored_nodes:
-        for x, y in node.path:
-            ax.scatter(x, y, color='blue')
-            if animate:
-                if count % 10 == 0:
-                    plt.savefig('output/output_image_' + str(count) + '.png')
-                count += 1
-
-    # Plot path
-    for point, bt in zip(trajectory, path):
-        ax.scatter(bt[0], bt[1], color='yellow')
-        for xi, yi in point.path:
-            ax.scatter(xi, yi, color='red')
+    # to visualise child exploration
+    for ch in explored_nodes:
+        for xv,yv in ch.path:
+            ax.plot(xv,yv, color="cyan")
         if animate:
-            plt.savefig('output/output_image_' + str(count) + '.png')
-            count += 1
-
+            plt.savefig("animate/animateImg"+str(counter)+".png")
+            counter += 1
+            
+    # to visualize backtrack path
+    for pt,bt_path in zip(trajectory[::-1],pathTaken[::-1]):
+        ax.scatter(bt_path[0],bt_path[1], color="black")
+        for xt,yt in pt.path:
+            ax.plot(xt,yt, color="red")
+        if animate:
+            plt.savefig("animate/animateImg"+str(counter)+".png")
+            counter += 1
+    
     if animate:
-        for filename in os.listdir('output'):
-            img = cv.imread(os.path.join("output",filename))
+        for filename in os.listdir("animate"):
+            path = os.path.join("animate",filename)
+            # print(path)
+            img = cv2.imread(path)
+            # print(img.shape)
+            img = cv2.resize(img,(1280,720))
             save.write(img)
         save.release()
+
     end_time = time.time()
-    print("Time taken to visualize:", end_time - start_time)
+    print('Time taken to visualize: ',(end_time - start_time)," sec")
 
+def export_rpms(rpms):
+    """Export the rpms to a csv file
 
-def write_rpm_to_file(rpm):
+    Args:
+        rpms (List): List of rpms
+    """
+
     with open('rpm.csv', 'w', newline='') as file:
         writer = csv.writer(file)
-        for w1,w2 in rpm:    
+        for w1,w2 in rpms[::-1]:    
             writer.writerow([round(w1,3),round(w2,3)])
 
 def main():
+    xs = int(input('Enter start x-coordinate: '))
+    ys = int(input('Enter start y-coordinate: '))
+    start_pose= (xs,ys,0)
 
-    parser = argparse.ArgumentParser(description='Animate on/off')
-    parser.add_argument('--animate', type=bool , default=False, help="Create the animation video default is False")
-    args = parser.parse_args()
+    xg = int(input('Enter goal x-coordinate: '))
+    yg = int(input('Enter goal y-coordinate: '))
+    goal_pose= (xg,yg,0)
 
-    # get start and end points from user
-    start_point = (int(input("Enter x coordinate of start point: ")), int(input("Enter y coordinate of start point: ")), int(input("Enter the start angle of the robot in multiples of 30deg(0 <= theta <= 360): ")))
-    goal_point = (int(input("Enter x coordinate of goal point: ")), int(input("Enter y coordinate of goal point: ")), int(input("Enter the goal angle of the robot in multiples of 30deg(0 <= theta <= 360): ")))
-    clearance = int(input("Enter the clearance for robot: "))
-    threshold = int(input("Enter the threshold distance for goal: "))
-    w1 = int(input("Enter w1: "))
-    w2 = int(input("Enter w2: "))
+    clearence = int(input('Enter clearance (robot radius + bloat): '))
+    threshold = int(input('Enter goal threshold: '))
 
-    # Check if start and goal points are in obstacles
-    if in_obstacles(start_point, clearance):
-        print("Start point is in obstacle")
+    w1 = int(input('Enter w1: '))
+    w2 = int(input('Enter w2: '))
+        
+    print("Finding Path....")
+    pathTaken, rpms, trajectory, explored_nodes = astar(start_pose, goal_pose, clearence, w1, w2, threshold)
+    if pathTaken == None:
+        print("Path not found exiting...")
         return
+    
+    if rpms != None:
+        export_rpms(rpms)
 
-    if in_obstacles(goal_point, clearance):
-        print("Goal point is in obstacle")
-        return
+    if pathTaken != None:
+        animate = True
+        print("Building Visualisation: Animate = ", animate)
+        visualization(explored_nodes, pathTaken, trajectory, start_pose, goal_pose, animate)
 
-    # find shortest path
-    explored_nodes, shortest_path, rpm, trajectory = astar(start_point, goal_point, clearance, threshold, w1, w2)
-    if shortest_path == None:
-        print("No path found")
-
-    # write rpm to file
-    if rpm != None:
-        write_rpm_to_file(rpm)
-
-    # visualize path
-    if shortest_path != None:
-        vizualize(start_point, goal_point, shortest_path, explored_nodes, rpm, trajectory, args.animate)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
