@@ -72,8 +72,9 @@ install(DIRECTORY include/
 
 
 # Install python scripts
-install(PROGRAMS 
+install(PROGRAMS
   scripts/teleop.py
+  scripts/publish_vel.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
