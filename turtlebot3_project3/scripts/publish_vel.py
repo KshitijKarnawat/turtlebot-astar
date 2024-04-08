@@ -1,58 +1,64 @@
 #!/usr/bin/env python3
 
+import threading
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-import pandas, math
+import pandas as pd
 
-class AStarCommander(Node):
 
-  def __init__(self):
-    super().__init__('astar_commander')
-    self.rpms = pandas.read_csv("../../part1/rpm.csv", delimiter=',', header=None, dtype=float)
-    self.index = 0
-    self.path_published = False
-    self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-    self.publish_timer = self.create_timer(1, self.publish_velocities)
+class MyNode(Node):
+    def __init__(self):
+        super().__init__('astar_publisher')
+        self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.idx = 0
+        self.wheel_r = 0.033
+        self.wheel_base = 0.16
 
-  def publish_velocities(self):
-    velocity = Twist()
+        
+    
 
-    velocity.linear.x = 0.0
-    velocity.linear.y = 0.0
-    velocity.linear.z = 0.0
+def main():
+  rclpy.init()
+  node = MyNode()
 
-    velocity.angular.x = 0.0
-    velocity.angular.y = 0.0
-    velocity.angular.z = 0.0
+  # Spin in a separate thread
+  thread = threading.Thread(target=rclpy.spin, args=(node, ), daemon=True)
+  thread.start()
 
-    if (self.index == len(self.rpms)):
-      self.cmd_vel_pub.publish(velocity)
-      self.path_published = True
-      print("Finished publishing velocities")
-      return
+  rate = node.create_rate(0.45)
 
-    left_rpm = float(self.rpms.iloc[[self.index]][0])
-    right_rpm = float(self.rpms.iloc[[self.index]][1])
+  rpm = pd.read_csv("/home/nova/ros2_ws/src/turtlebot3_project3/scripts/rpm.csv", delimiter=',', header=None, dtype=float)
 
-    velocity.angular.z = math.radians((0.038 / 0.354) * (right_rpm - left_rpm))
-    velocity.linear.x = (0.038 / 2) * (left_rpm + right_rpm) * math.cos(velocity.angular.z)
-    velocity.linear.y = (0.038 / 2) * (left_rpm + right_rpm) * math.sin(velocity.angular.z)
+  left_rpm = rpm.iloc[node.idx][0]
+  right_rpm = rpm.iloc[node.idx][1]
+  
+  robot_vel = Twist()
 
-    self.cmd_vel_pub.publish(velocity)
-    self.index += 1
+  lin_vel = (node.wheel_r*(left_rpm + right_rpm))/2.0
+  ang_vel = (right_rpm - left_rpm)*node.wheel_r/node.wheel_base
 
-def main(args=None):
-  rclpy.init(args=args)
+  try:
+      while rclpy.ok() and node.idx < len(rpm):
+          print(left_rpm, right_rpm)
+          robot_vel.linear.x = lin_vel
+          robot_vel.angular.z = ang_vel
+          node.publisher_.publish(robot_vel)
+          rate.sleep()
+          node.idx += 1
+          left_rpm = rpm.iloc[node.idx][0] * 0.45
+          right_rpm = rpm.iloc[node.idx][1] * 0.45 
+          lin_vel = (node.wheel_r*(left_rpm + right_rpm))/2.0
+          ang_vel = (right_rpm - left_rpm)*node.wheel_r/node.wheel_base
 
-  astar_commander_node = AStarCommander()
-  print("Publishing velocities from CSV...")
-  rclpy.spin(astar_commander_node)
+  except KeyboardInterrupt:
+      robot_vel.linear.x = 0.0
+      robot_vel.angular.z = 0.0
+      node.publisher_.publish(robot_vel)
+      pass
 
-  while (astar_commander_node.path_published == False): pass
-
-  astar_commander_node.destroy_node()
   rclpy.shutdown()
+  thread.join()
 
 if __name__ == '__main__':
-  main()
+    main()

@@ -333,7 +333,7 @@ def export_rpms(rpms):
         rpms (List): List of rpms
     """
 
-    with open('rpm.csv', 'w', newline='') as file:
+    with open('../turtlebot3_project3/scripts/rpm.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         for w1,w2 in rpms[::-1]:    
             writer.writerow([round(w1,3),round(w2,3)])
