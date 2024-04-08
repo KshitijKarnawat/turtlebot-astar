@@ -9,7 +9,7 @@ class AStarCommander(Node):
 
   def __init__(self):
     super().__init__('astar_commander')
-    self.rpms = pandas.read_csv("~/turtlebot-astar/src/part1/rpm.csv", delimiter=',', header=None, dtype=float)
+    self.rpms = pandas.read_csv("../../part1/rpm.csv", delimiter=',', header=None, dtype=float)
     self.index = 0
     self.path_published = False
     self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
