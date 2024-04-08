@@ -61,20 +61,20 @@ def in_obstacle(pose, clearence):
         bool: True if robot is in obstacle space, False otherwise
     """
 
-    xMax, yMax = [600 + 1, 200 + 1]
-    yMin, yMin = [0, 0]
+    x_max, y_max = [600 + 1, 200 + 1]
+    x_min, y_min = [0, 0]
     x, y, th = pose
     
     # walls
-    if x <= clearence or x >= xMax-clearence or y <= clearence or y >= yMax- clearence:
+    if x <= clearence or x >= x_max - clearence or y <= clearence or y >= y_max - clearence:
         return False
     
     # left rectangle
-    elif x>= 150-clearence and x<= 175+clearence and y >=100-clearence and y <= yMax-clearence:
+    elif x>= 150 - clearence and x<= 175 + clearence and y >= 100 - clearence and y <= y_max - clearence:
         return False
     
     # right rectangle
-    elif x >= 250-clearence and x<= 275+clearence and y >=yMin+clearence  and y <= 100+clearence:
+    elif x >= 250 - clearence and x<= 275 + clearence and y >= y_min + clearence  and y <= 100 + clearence:
         return False
     
     # circle
@@ -116,38 +116,38 @@ def get_child(node, goal_pose, clearence, w1, w2):
         dt = 0.1
         valid = True
 
-        xi, yi, thi = node.pose
-        Thetan = np.deg2rad(thi)
-        actionCost = 0
-        Xn=xi
-        Yn=yi
+        x, y, theta = node.pose
+        theta_rad = np.deg2rad(theta)
+        child_cost = 0
+        Xn = x
+        Yn = y
 
         while t<1:
             t = t + dt
             Xs,Ys = Xn,Yn
-            Thetan += (r / L) * (right_wheel - left_wheel) * dt
-            Xn = Xs + 0.5* r * (left_wheel + right_wheel) * math.cos(Thetan) * dt
-            Yn =  Ys + 0.5 * r * (left_wheel + right_wheel) * math.sin(Thetan) * dt
+            theta_rad += (r / L) * (right_wheel - left_wheel) * dt
+            Xn = Xs + 0.5* r * (left_wheel + right_wheel) * math.cos(theta_rad) * dt
+            Yn =  Ys + 0.5 * r * (left_wheel + right_wheel) * math.sin(theta_rad) * dt
             child_path.append([[Xs, Xn], [Ys, Yn]])
 
-            if not in_obstacle((Xn, Yn, Thetan), clearence):
+            if not in_obstacle((Xn, Yn, theta_rad), clearence):
                 valid = False
                 break
 
         if valid:
-            Thetan = np.rad2deg(Thetan)
-            actionCost = calc_euclidean_dist((Xs, Ys), (Xn, Yn))
-            cgoal = np.linalg.norm(np.asarray((Xn, Yn)) - np.asarray((goal_pose[0], goal_pose[1])))
-            child = Node((int(round(Xn, 0)), int(round(Yn, 0)), Thetan), 
+            theta = np.rad2deg(theta_rad)
+            child_cost = calc_euclidean_dist((Xs, Ys), (Xn, Yn))
+            cost_to_go = np.linalg.norm(np.asarray((Xn, Yn)) - np.asarray((goal_pose[0], goal_pose[1])))
+            child = Node((int(round(Xn, 0)), int(round(Yn, 0)), theta), 
                         node, 
-                        node.cost_to_come + actionCost,
-                        node.cost_to_come + actionCost + cgoal, 
+                        node.cost_to_come + child_cost,
+                        node.cost_to_come + child_cost + cost_to_go, 
                         left_wheel, 
                         right_wheel, 
                         child_path
                         )
             
-            child_list.append((actionCost, cgoal, child))
+            child_list.append((child_cost, cost_to_go, child))
 
     return child_list
 
@@ -216,21 +216,18 @@ def astar(start, goal, clearence , w1, w2, threshold):
         
         else:
             childList = get_child(current, goal, clearence, w1, w2)
-            for actionCost, actionGoal, child in childList:
+            for child_cost, cost_to_go, child in childList:
                 if child.pose in closed_list_info:
                     del child
                     continue
 
                 if child.pose in open_list_info:
-                    if open_list_info[child.pose].cost_to_come > current.cost_to_come + actionCost:
+                    if open_list_info[child.pose].cost_to_come > current.cost_to_come + child_cost:
                         open_list_info[child.pose].parent = current
-                        open_list_info[child.pose].cost_to_come = current.cost_to_come + actionCost
-                        open_list_info[child.pose].total_cost = open_list_info[child.pose].cost_to_come + actionGoal
+                        open_list_info[child.pose].cost_to_come = current.cost_to_come + child_cost
+                        open_list_info[child.pose].total_cost = open_list_info[child.pose].cost_to_come + cost_to_go
                 
                 else:
-                    child.parent = current
-                    child.cost_to_come = current.cost_to_come + actionCost
-                    child.total_cost = child.cost_to_come + actionGoal
                     open_list.append((child.total_cost, child))
                     open_list_info[child.pose] = child
                     explored_nodes.append(child)
@@ -239,7 +236,7 @@ def astar(start, goal, clearence , w1, w2, threshold):
     print("Time taken to execute algorithm: ",(end - start)," sec")
     return None, None, None, None
 
-def visualization(explored_nodes, pathTaken, trajectory, start_pose, goal_pose, animate=False):
+def visualization(explored_nodes, shortest_path, trajectory, start_pose, goal_pose, threshold, animate=False):
     """Visualize the path taken by the robot
 
     Args:
@@ -270,47 +267,49 @@ def visualization(explored_nodes, pathTaken, trajectory, start_pose, goal_pose, 
     
     # set goal and start
     ax.scatter(start_pose[0],start_pose[1],color = "red")
-    ax.scatter(goal_pose[0],goal_pose[1],color = "green")
-    
+    goal = plt.Circle((goal_pose[0],goal_pose[1]), threshold,color = "green")
+    ax.add_artist(goal)
+
     # draw obstacle space
-    xObs, yObs = np.meshgrid(np.arange(0, 600), np.arange(0, 200))
+    x, y = np.meshgrid(np.arange(0, 600), np.arange(0, 200))
+
     rectangle1 = plt.Rectangle((150, 100), 25, 100, fc='black')
-    ax.add_artist(rectangle1)
-    
-    rectangle2 = plt.Rectangle((250, 0), 25, 100, fc='black')
-    ax.add_artist(rectangle2)
-    
+    rectangle2 = plt.Rectangle((250, 0), 25, 100, fc='black')    
     cc = plt.Circle(( 420 , 120 ), 60, color = "black") 
+
+    ax.add_artist(rectangle1)
+    ax.add_artist(rectangle2)
     ax.add_artist( cc )
 
-    boundary1 = (xObs<=5) 
-    ax.fill(xObs[boundary1], yObs[boundary1], color='black')
-    boundary2 = (xObs>=595) 
-    ax.fill(xObs[boundary2], yObs[boundary2], color='black')
-    boundary3 = (yObs<=5) 
-    ax.fill(xObs[boundary3], yObs[boundary3], color='black')
-    boundary4 = (yObs>=195) 
-    ax.fill(xObs[boundary4], yObs[boundary4], color='black')
+    bound1 = (x<=5) 
+    bound2 = (x>=595) 
+    bound3 = (y<=5) 
+    bound4 = (y>=195) 
+
+    ax.fill(x[bound1], y[bound1], color='black')
+    ax.fill(x[bound2], y[bound2], color='black')
+    ax.fill(x[bound3], y[bound3], color='black')
+    ax.fill(x[bound4], y[bound4], color='black')
     ax.set_aspect(1)
-   
+
     if animate:
         plt.savefig("animate/animateImg"+str(counter)+".png")
         counter += 1
 
     start_time = time.time()
     # to visualise child exploration
-    for ch in explored_nodes:
-        for xv,yv in ch.path:
-            ax.plot(xv,yv, color="cyan")
+    for node in explored_nodes:
+        for xe,ye in node.path:
+            ax.plot(xe,ye, color="blue")
         if animate:
             plt.savefig("animate/animateImg"+str(counter)+".png")
             counter += 1
             
     # to visualize backtrack path
-    for pt,bt_path in zip(trajectory[::-1],pathTaken[::-1]):
-        ax.scatter(bt_path[0],bt_path[1], color="black")
-        for xt,yt in pt.path:
-            ax.plot(xt,yt, color="red")
+    for point,backtrack_path in zip(trajectory ,shortest_path):
+        ax.scatter(backtrack_path[0],backtrack_path[1], color="black")
+        for xt,yt in point.path:
+            ax.plot(xt,yt, color="green")
         if animate:
             plt.savefig("animate/animateImg"+str(counter)+".png")
             counter += 1
@@ -318,15 +317,14 @@ def visualization(explored_nodes, pathTaken, trajectory, start_pose, goal_pose, 
     if animate:
         for filename in os.listdir("animate"):
             path = os.path.join("animate",filename)
-            # print(path)
             img = cv2.imread(path)
-            # print(img.shape)
             img = cv2.resize(img,(1280,720))
             save.write(img)
         save.release()
 
     end_time = time.time()
     print('Time taken to visualize: ',(end_time - start_time)," sec")
+    plt.show()
 
 def export_rpms(rpms):
     """Export the rpms to a csv file
@@ -341,21 +339,22 @@ def export_rpms(rpms):
             writer.writerow([round(w1,3),round(w2,3)])
 
 def main():
-    xs = int(input('Enter start x-coordinate: '))
-    ys = int(input('Enter start y-coordinate: '))
-    start_pose= (xs,ys,0)
 
-    xg = int(input('Enter goal x-coordinate: '))
-    yg = int(input('Enter goal y-coordinate: '))
-    goal_pose= (xg,yg,0)
-
+    start_pose= (int(input('Enter start x-coordinate: ')), int(input('Enter start y-coordinate: ')),0)
+    goal_pose= (int(input('Enter goal x-coordinate: ')), int(input('Enter goal y-coordinate: ')),0)
     clearence = int(input('Enter clearance (robot radius + bloat): '))
     threshold = int(input('Enter goal threshold: '))
-
     w1 = int(input('Enter w1: '))
     w2 = int(input('Enter w2: '))
-        
-    print("Finding Path....")
+    
+    if not in_obstacle(start_pose, clearence):
+        print("Start pose is in obstacle space")
+        return
+    
+    if not in_obstacle(goal_pose, clearence):
+        print("Goal pose is in obstacle space")
+        return
+
     pathTaken, rpms, trajectory, explored_nodes = astar(start_pose, goal_pose, clearence, w1, w2, threshold)
     if pathTaken == None:
         print("Path not found exiting...")
@@ -365,9 +364,9 @@ def main():
         export_rpms(rpms)
 
     if pathTaken != None:
-        animate = True
-        print("Building Visualisation: Animate = ", animate)
-        visualization(explored_nodes, pathTaken, trajectory, start_pose, goal_pose, animate)
+        animate = False
+        print("Visualisation: ", animate)
+        visualization(explored_nodes, pathTaken, trajectory, start_pose, goal_pose, threshold, animate)
 
 if __name__ == '__main__':
     main()
