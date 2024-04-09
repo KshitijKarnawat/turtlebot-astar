@@ -26,7 +26,7 @@ def main():
   thread = threading.Thread(target=rclpy.spin, args=(node, ), daemon=True)
   thread.start()
 
-  rate = node.create_rate(0.45)
+  rate = node.create_rate(0.4)
 
   rpm = pd.read_csv("/home/nova/ros2_ws/src/turtlebot3_project3/scripts/rpm.csv", delimiter=',', header=None, dtype=float)
 
@@ -46,8 +46,8 @@ def main():
           node.publisher_.publish(robot_vel)
           rate.sleep()
           node.idx += 1
-          left_rpm = rpm.iloc[node.idx][0] * 0.45
-          right_rpm = rpm.iloc[node.idx][1] * 0.45 
+          left_rpm = rpm.iloc[node.idx][0] * 0.4
+          right_rpm = rpm.iloc[node.idx][1] * 0.4 
           lin_vel = (node.wheel_r*(left_rpm + right_rpm))/2.0
           ang_vel = (right_rpm - left_rpm)*node.wheel_r/node.wheel_base
 

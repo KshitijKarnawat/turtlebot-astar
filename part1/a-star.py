@@ -337,6 +337,8 @@ def export_rpms(rpms):
         writer = csv.writer(file)
         for w1,w2 in rpms[::-1]:    
             writer.writerow([round(w1,3),round(w2,3)])
+        writer.writerow([0,0])
+        writer.writerow([0,0])
 
 def main():
 
